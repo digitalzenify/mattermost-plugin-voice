@@ -119,6 +119,7 @@ endif
 ifneq ($(HAS_SERVER),)
 	mkdir -p dist/$(PLUGIN_ID)/server
 	cp -r server/dist dist/$(PLUGIN_ID)/server/
+	chmod +x dist/$(PLUGIN_ID)/server/dist/*
 endif
 ifneq ($(HAS_WEBAPP),)
 	mkdir -p dist/$(PLUGIN_ID)/webapp
@@ -127,7 +128,12 @@ endif
 ifeq ($(shell uname),Darwin)
 	cd dist && tar --disable-copyfile -cvzf $(BUNDLE_NAME) $(PLUGIN_ID)
 else
-	cd dist && tar -cvzf $(BUNDLE_NAME) $(PLUGIN_ID)
+	# --mode='+x' is a belt-and-suspenders safety net (in addition to the chmod above) for
+	# filesystems that don't reliably persist the executable bit (e.g. a bundle built on native
+	# Windows), so the server binaries always end up executable once extracted on the target
+	# server. GNU tar only; the Darwin branch above uses BSD tar, which doesn't support --mode,
+	# but a real macOS filesystem preserves chmod correctly anyway.
+	cd dist && tar --mode='+x' -cvzf $(BUNDLE_NAME) $(PLUGIN_ID)
 endif
 
 	@echo plugin built at: dist/$(BUNDLE_NAME)

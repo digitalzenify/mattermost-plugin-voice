@@ -1,6 +1,11 @@
-// Voice message compose button and its recording / review / uploading / error states.
+// Voice message compose button. This always keeps the same small footprint in the message box's
+// action row, regardless of recording state - the expanded UI lives in a separate popover (below)
+// that floats above the row instead of competing with it for horizontal space. That matters most
+// on narrow mobile viewports, where inline expansion previously pushed into (or covered) the Send
+// button.
 .VoiceRecorderAction__button {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: center;
     width: 32px;
@@ -24,24 +29,91 @@
 
     &--pending {
         color: var(--away-indicator);
+        opacity: 1;
+    }
+
+    &--recording {
+        color: var(--dnd-indicator);
+        opacity: 1;
+    }
+
+    &--active {
+        color: var(--button-bg);
+        opacity: 1;
+    }
+
+    &--error {
+        color: var(--error-text);
+        opacity: 1;
     }
 }
 
-.VoiceRecorderAction {
+.VoiceRecorderAction__dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--dnd-indicator);
+    animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+}
+
+// The floating popover itself is positioned via inline styles (top/left/width) computed in JS
+// from the anchor button's position - see use_anchored_popover_position.ts - since it's rendered
+// through a portal into document.body and so can't rely on CSS positioning relative to its DOM
+// parent. This class only supplies the visual chrome and anchors it just above those coordinates.
+.VoiceRecorderAction__popover {
+    position: fixed;
+    z-index: 100000;
+    transform: translateY(-100%);
+    border: 1px solid rgba(var(--center-channel-color-rgb), 0.16);
+    border-radius: 8px;
+    background: var(--center-channel-bg);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+}
+
+.VoiceRecorderAction__panel {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(var(--center-channel-color-rgb), 0.04);
+    padding: 8px;
 
     &--recording {
         color: var(--dnd-indicator);
     }
+
+    &--uploading {
+        color: rgba(var(--center-channel-color-rgb), 0.64);
+    }
+
+    &--error {
+        color: var(--error-text);
+    }
+
+    &--review {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+.VoiceRecorderAction__panelActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
 }
 
 .VoiceRecorderAction__level {
     display: inline-block;
+    flex: 0 0 auto;
     width: 10px;
     height: 10px;
     border-radius: 50%;
@@ -50,6 +122,7 @@
 }
 
 .VoiceRecorderAction__timer {
+    flex: 1 1 auto;
     min-width: 34px;
     font-variant-numeric: tabular-nums;
     color: var(--center-channel-color);
@@ -62,6 +135,7 @@
 
 .VoiceRecorderAction__iconButton {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: center;
     width: 26px;
@@ -90,18 +164,6 @@
     }
 }
 
-.VoiceRecorderAction--review {
-    min-width: 260px;
-}
-
-.VoiceRecorderAction--uploading {
-    color: rgba(var(--center-channel-color-rgb), 0.64);
-}
-
-.VoiceRecorderAction--error {
-    background: rgba(var(--error-text-color-rgb), 0.08);
-}
-
 .VoiceRecorderAction__errorText {
     color: var(--error-text);
     font-size: 12px;
@@ -109,6 +171,7 @@
 
 .VoiceRecorderAction__spinner {
     display: inline-block;
+    flex: 0 0 auto;
     width: 12px;
     height: 12px;
     border: 2px solid rgba(var(--center-channel-color-rgb), 0.2);
