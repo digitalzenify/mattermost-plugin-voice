@@ -4,27 +4,30 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 
-	"github.com/mattermost/mattermost-server/v6/model"
+	"github.com/mattermost/mattermost/server/public/model"
 )
 
-var manifest model.Manifest
-var wsActionPrefix string
+var manifest *model.Manifest
 
 const manifestStr = `
 {
   "id": "com.mattermost.voice",
   "name": "Voice",
-  "description": "Mattermost plugin to enable voice messaging.",
-  "homepage_url": "https://github.com/streamer45/mattermost-plugin-voice",
-  "support_url": "https://github.com/streamer45/mattermost-plugin-voice/issues",
-  "release_notes_url": "https://github.com/streamer45/mattermost-plugin-voicereleases/tag/v0.3.0",
-  "version": "0.3.0",
-  "min_server_version": "6.3.0",
+  "description": "Record, send, and receive voice messages in Mattermost, with optional automatic transcription via an external AI service.",
+  "homepage_url": "https://github.com/digitalzenify/mattermost-plugin-voice",
+  "support_url": "https://github.com/digitalzenify/mattermost-plugin-voice/issues",
+  "release_notes_url": "https://github.com/digitalzenify/mattermost-plugin-voice/releases/tag/v1.0.0",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "8.1.0",
   "server": {
     "executables": {
       "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
       "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
       "windows-amd64": "server/dist/plugin-windows-amd64.exe"
     },
     "executable": ""
@@ -33,22 +36,34 @@ const manifestStr = `
     "bundle_path": "webapp/dist/main.js"
   },
   "settings_schema": {
-    "header": "",
-    "footer": "",
+    "header": "Configure voice messaging and optional AI transcription.",
+    "footer": "See the plugin README for how to wire up an external transcription service (e.g. an n8n workflow).",
     "settings": [
       {
-        "key": "VoiceMaxDuration",
-        "display_name": "Max Duration",
-        "type": "number",
-        "help_text": "Max duration allowed (in seconds) for voice messages.",
+        "key": "EnableSlashCommand",
+        "display_name": "Enable /voice Slash Command",
+        "type": "bool",
+        "help_text": "When enabled, users can type /voice to start recording a voice message.",
         "placeholder": "",
-        "default": 300
+        "default": true,
+        "hosting": "",
+        "secret": false
       },
       {
-        "key": "VoiceAudioBitrate",
-        "display_name": "Audio Quality",
+        "key": "VoiceMaxDuration",
+        "display_name": "Max Recording Duration (seconds)",
+        "type": "number",
+        "help_text": "The maximum length, in seconds, of a single voice message. Recording stops automatically once this limit is reached.",
+        "placeholder": "",
+        "default": 300,
+        "hosting": "",
+        "secret": false
+      },
+      {
+        "key": "VoiceAudioQuality",
+        "display_name": "Recording Audio Quality",
         "type": "dropdown",
-        "help_text": "Audio quality of voice messages. This setting affects recording size.",
+        "help_text": "Higher quality produces larger files. This only affects new recordings.",
         "placeholder": "",
         "default": "64",
         "options": [
@@ -61,19 +76,59 @@ const manifestStr = `
             "value": "64"
           },
           {
-            "display_name": "Low (48 kbps)",
-            "value": "48"
+            "display_name": "Low (32 kbps)",
+            "value": "32"
           }
-        ]
+        ],
+        "hosting": "",
+        "secret": false
+      },
+      {
+        "key": "EnableTranscriptionWebhook",
+        "display_name": "Enable Outgoing Transcription Webhook",
+        "type": "bool",
+        "help_text": "When enabled, the plugin notifies an external service (such as an n8n workflow) every time a voice message is posted, so it can be transcribed automatically.",
+        "placeholder": "",
+        "default": false,
+        "hosting": "",
+        "secret": false
+      },
+      {
+        "key": "TranscriptionWebhookURL",
+        "display_name": "Transcription Webhook URL",
+        "type": "text",
+        "help_text": "The URL the plugin will POST a JSON payload to whenever a voice message is posted.",
+        "placeholder": "",
+        "default": "",
+        "hosting": "",
+        "secret": false
+      },
+      {
+        "key": "TranscriptionWebhookSecret",
+        "display_name": "Transcription Webhook Secret",
+        "type": "generated",
+        "help_text": "Shared secret used to sign outgoing webhook payloads and authenticate incoming transcript callbacks. Regenerating it invalidates any callback in flight.",
+        "placeholder": "",
+        "default": "",
+        "hosting": "",
+        "secret": false
+      },
+      {
+        "key": "TranscriptionLinkTTL",
+        "display_name": "Signed Download Link Lifetime (seconds)",
+        "type": "number",
+        "help_text": "How long the signed, unauthenticated download link included in the outgoing webhook payload remains valid.",
+        "placeholder": "",
+        "default": 900,
+        "hosting": "",
+        "secret": false
       }
-    ]
+    ],
+    "sections": null
   }
 }
 `
 
 func init() {
-	if err := json.Unmarshal([]byte(manifestStr), &manifest); err != nil {
-		panic(err.Error())
-	}
-	wsActionPrefix = "custom_" + manifest.Id + "_"
+	_ = json.NewDecoder(strings.NewReader(manifestStr)).Decode(&manifest)
 }

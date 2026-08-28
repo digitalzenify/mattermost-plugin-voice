@@ -1,20 +1,24 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"regexp"
+	"fmt"
+	"strings"
 	"sync"
-	"time"
 
-	"github.com/mattermost/mattermost-server/v6/model"
-	"github.com/mattermost/mattermost-server/v6/plugin"
+	"github.com/gorilla/mux"
+	"github.com/mattermost/mattermost/server/public/model"
+	"github.com/mattermost/mattermost/server/public/plugin"
 )
 
-// Plugin implements the interface expected by the Mattermost server to communicate between the server and plugin processes.
+const commandTriggerVoice = "voice"
+
+// Plugin implements the interface expected by the Mattermost server to communicate between the
+// server and plugin processes.
 type Plugin struct {
 	plugin.MattermostPlugin
+
+	// router is the HTTP router used to serve the plugin's REST API.
+	router *mux.Router
 
 	// configurationLock synchronizes access to the configuration.
 	configurationLock sync.RWMutex
@@ -22,72 +26,65 @@ type Plugin struct {
 	// configuration is the active plugin configuration. Consult getConfiguration and
 	// setConfiguration for usage.
 	configuration *configuration
+
+	// commandRegistered tracks whether the /voice slash command is currently registered, so
+	// OnConfigurationChange can react to the setting being toggled at runtime.
+	commandRegistered bool
 }
 
-var re *regexp.Regexp = regexp.MustCompile(`^\/recordings\/([A-Za-z0-9]+)$`)
+// OnActivate is invoked when the plugin is activated. Mattermost itself already enforces
+// min_server_version from plugin.json before this is ever called.
+func (p *Plugin) OnActivate() error {
+	p.router = p.initRouter()
+	p.syncCommandRegistration()
+	return nil
+}
 
-func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
-	userID := r.Header.Get("Mattermost-User-Id")
-	if userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
+// OnDeactivate is invoked when the plugin is deactivated.
+func (p *Plugin) OnDeactivate() error {
+	return nil
+}
+
+// syncCommandRegistration registers or unregisters the /voice slash command to match the current
+// EnableSlashCommand setting.
+func (p *Plugin) syncCommandRegistration() {
+	shouldBeRegistered := p.getConfiguration().EnableSlashCommand
+
+	if shouldBeRegistered && !p.commandRegistered {
+		if err := p.API.RegisterCommand(&model.Command{
+			Trigger:          commandTriggerVoice,
+			AutoComplete:     true,
+			AutoCompleteDesc: "Record and send a voice message",
+			DisplayName:      "Record a voice message",
+		}); err != nil {
+			p.API.LogError("failed to register /voice command", "error", err.Error())
+			return
+		}
+		p.commandRegistered = true
+	} else if !shouldBeRegistered && p.commandRegistered {
+		if err := p.API.UnregisterCommand("", commandTriggerVoice); err != nil {
+			p.API.LogError("failed to unregister /voice command", "error", err.Error())
+			return
+		}
+		p.commandRegistered = false
+	}
+}
+
+// ExecuteCommand executes a command that has been previously registered via RegisterCommand. The
+// recorder itself lives as a microphone button directly in the message box, so /voice exists as a
+// discoverable pointer to it for anyone used to typing a slash command.
+func (p *Plugin) ExecuteCommand(_ *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	trigger := strings.TrimPrefix(strings.Fields(args.Command)[0], "/")
+
+	if trigger == commandTriggerVoice {
+		return &model.CommandResponse{
+			ResponseType: model.CommandResponseTypeEphemeral,
+			Text:         "Click the microphone icon in the message box to record a voice message.",
+		}, nil
 	}
 
-	if r.URL.Path == "/config" {
-		config := p.getConfiguration()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(config)
-		return
-	} else if matches := re.FindStringSubmatch(r.URL.Path); len(matches) == 2 {
-		postID := matches[1]
-		if len(postID) != 26 {
-			http.NotFound(w, r)
-			return
-		}
-
-		post, err := p.API.GetPost(postID)
-		if err != nil || post.DeleteAt > 0 || post.Type != "custom_voice" {
-			http.NotFound(w, r)
-			return
-		}
-
-		if p.API.HasPermissionToChannel(userID, post.ChannelId, model.PermissionReadChannel) != true {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-
-		fileID, ok := post.Props["fileId"].(string)
-		if !ok {
-			http.Error(w, "Bad request", http.StatusBadRequest)
-			return
-		}
-
-		info, err := p.API.GetFileInfo(fileID)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		file, err := p.API.GetFile(fileID)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		if info.MimeType != "" {
-			w.Header().Set("Content-Type", info.MimeType)
-		}
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "Frame-ancestors 'none'")
-
-		reader := bytes.NewReader(file)
-		secs := int64(info.UpdateAt / 1000)
-		ns := int64((info.UpdateAt - (secs * 1000)) * 1000000)
-		http.ServeContent(w, r, info.Name, time.Unix(secs, ns), reader)
-
-		return
-	}
-
-	http.NotFound(w, r)
-	return
+	return &model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         fmt.Sprintf("Unknown command: %s", args.Command),
+	}, nil
 }

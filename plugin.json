@@ -1,53 +1,92 @@
 {
-    "id": "com.mattermost.voice",
-    "name": "Voice",
-    "description": "Mattermost plugin to enable voice messaging.",
-    "homepage_url": "https://github.com/streamer45/mattermost-plugin-voice",
-    "support_url": "https://github.com/streamer45/mattermost-plugin-voice/issues",
-    "version": "0.3.0",
-    "min_server_version": "6.3.0",
-    "server": {
-        "executables": {
-            "linux-amd64": "server/dist/plugin-linux-amd64",
-            "darwin-amd64": "server/dist/plugin-darwin-amd64",
-            "windows-amd64": "server/dist/plugin-windows-amd64.exe"
-        }
-    },
-    "webapp": {
-        "bundle_path": "webapp/dist/main.js"
-    },
-    "settings_schema": {
-        "header": "",
-        "footer": "",
-        "settings": [
-            {
-                "key": "VoiceMaxDuration",
-                "display_name": "Max Duration",
-                "type": "number",
-                "help_text": "Max duration allowed (in seconds) for voice messages.",
-                "default": 300
-            },
-            {
-                "key": "VoiceAudioBitrate",
-                "display_name": "Audio Quality",
-                "type": "dropdown",
-                "help_text": "Audio quality of voice messages. This setting affects recording size.",
-                "default": "64",
-                "options": [
-                    {
-                        "display_name": "High (128 kbps)",
-                        "value": "128"
-                    },
-                    {
-                        "display_name": "Normal (64 kbps)",
-                        "value": "64"
-                    },
-                    {
-                        "display_name": "Low (48 kbps)",
-                        "value": "48"
-                    }
-                ]
-            }
-        ]
+  "id": "com.mattermost.voice",
+  "name": "Voice",
+  "description": "Record, send, and receive voice messages in Mattermost, with optional automatic transcription via an external AI service.",
+  "homepage_url": "https://github.com/digitalzenify/mattermost-plugin-voice",
+  "support_url": "https://github.com/digitalzenify/mattermost-plugin-voice/issues",
+  "release_notes_url": "https://github.com/digitalzenify/mattermost-plugin-voice/releases/tag/v1.0.0",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "8.1.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
     }
+  },
+  "webapp": {
+    "bundle_path": "webapp/dist/main.js"
+  },
+  "settings_schema": {
+    "header": "Configure voice messaging and optional AI transcription.",
+    "footer": "See the plugin README for how to wire up an external transcription service (e.g. an n8n workflow).",
+    "settings": [
+      {
+        "key": "EnableSlashCommand",
+        "display_name": "Enable /voice Slash Command",
+        "type": "bool",
+        "help_text": "When enabled, users can type /voice to start recording a voice message.",
+        "default": true
+      },
+      {
+        "key": "VoiceMaxDuration",
+        "display_name": "Max Recording Duration (seconds)",
+        "type": "number",
+        "help_text": "The maximum length, in seconds, of a single voice message. Recording stops automatically once this limit is reached.",
+        "default": 300
+      },
+      {
+        "key": "VoiceAudioQuality",
+        "display_name": "Recording Audio Quality",
+        "type": "dropdown",
+        "help_text": "Higher quality produces larger files. This only affects new recordings.",
+        "default": "64",
+        "options": [
+          {
+            "display_name": "High (128 kbps)",
+            "value": "128"
+          },
+          {
+            "display_name": "Normal (64 kbps)",
+            "value": "64"
+          },
+          {
+            "display_name": "Low (32 kbps)",
+            "value": "32"
+          }
+        ]
+      },
+      {
+        "key": "EnableTranscriptionWebhook",
+        "display_name": "Enable Outgoing Transcription Webhook",
+        "type": "bool",
+        "help_text": "When enabled, the plugin notifies an external service (such as an n8n workflow) every time a voice message is posted, so it can be transcribed automatically.",
+        "default": false
+      },
+      {
+        "key": "TranscriptionWebhookURL",
+        "display_name": "Transcription Webhook URL",
+        "type": "text",
+        "help_text": "The URL the plugin will POST a JSON payload to whenever a voice message is posted.",
+        "default": ""
+      },
+      {
+        "key": "TranscriptionWebhookSecret",
+        "display_name": "Transcription Webhook Secret",
+        "type": "generated",
+        "help_text": "Shared secret used to sign outgoing webhook payloads and authenticate incoming transcript callbacks. Regenerating it invalidates any callback in flight.",
+        "default": ""
+      },
+      {
+        "key": "TranscriptionLinkTTL",
+        "display_name": "Signed Download Link Lifetime (seconds)",
+        "type": "number",
+        "help_text": "How long the signed, unauthenticated download link included in the outgoing webhook payload remains valid.",
+        "default": 900
+      }
+    ]
+  }
 }

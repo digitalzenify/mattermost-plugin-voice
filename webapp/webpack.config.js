@@ -1,8 +1,6 @@
 const exec = require('child_process').exec;
 const path = require('path');
 
-const webpack = require('webpack');
-
 const PLUGIN_ID = require('../plugin.json').id;
 
 const NPM_TARGET = process.env.npm_lifecycle_event; //eslint-disable-line no-process-env
@@ -13,11 +11,7 @@ if (NPM_TARGET === 'debug' || NPM_TARGET === 'debug:watch') {
     devtool = 'eval-cheap-module-source-map';
 }
 
-const plugins = [
-    new webpack.ProvidePlugin({
-        process: 'process/browser',
-    }),
-];
+const plugins = [];
 
 if (NPM_TARGET === 'build:watch' || NPM_TARGET === 'debug:watch') {
     plugins.push({
@@ -42,28 +36,23 @@ if (NPM_TARGET === 'build:watch' || NPM_TARGET === 'debug:watch') {
 
 module.exports = {
     entry: [
-        './src/index.js',
+        './src/index.tsx',
     ],
     resolve: {
         alias: {
             src: path.resolve(__dirname, './src/'),
-            'mattermost-redux': path.resolve(__dirname, './node_modules/mattermost-webapp/packages/mattermost-redux/src/'),
-            reselect: path.resolve(__dirname, './node_modules/mattermost-webapp/packages/reselect/src/index'),
         },
         modules: [
             'src',
             'node_modules',
         ],
         extensions: ['*', '.js', '.jsx', '.ts', '.tsx'],
-        fallback: {
-            buffer: require.resolve('buffer/'),
-        },
     },
     module: {
         rules: [
             {
                 test: /\.(js|jsx|ts|tsx)$/,
-                exclude: /node_modules\/(?!(mattermost-webapp)\/).*/,
+                exclude: /node_modules/,
                 use: {
                     loader: 'babel-loader',
                     options: {
@@ -77,16 +66,12 @@ module.exports = {
                 test: /\.(scss|css)$/,
                 use: [
                     'style-loader',
-                    {
-                        loader: 'css-loader',
-                    },
-                    {
-                        loader: 'sass-loader',
-                    },
+                    'css-loader',
+                    'sass-loader',
                 ],
             },
             {
-                test: /\.(png|eot|tiff|svg|woff2|woff|ttf|gif|mp3|wav|jpg)$/,
+                test: /\.(png|eot|tiff|svg|woff2|woff|ttf|gif|jpg)$/,
                 use: [
                     {
                         loader: 'file-loader',
@@ -100,12 +85,10 @@ module.exports = {
     },
     externals: {
         react: 'React',
+        'react-dom': 'ReactDOM',
         redux: 'Redux',
         'react-redux': 'ReactRedux',
         'prop-types': 'PropTypes',
-        'react-bootstrap': 'ReactBootstrap',
-        'react-router-dom': 'ReactRouterDom',
-        'react-intl': 'ReactIntl',
     },
     output: {
         devtoolNamespace: PLUGIN_ID,

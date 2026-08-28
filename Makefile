@@ -1,16 +1,23 @@
 GO ?= $(shell command -v go 2> /dev/null)
 NPM ?= $(shell command -v npm 2> /dev/null)
-CURL ?= $(shell command -v curl 2> /dev/null)
-MANIFEST_FILE ?= plugin.json
+MM_DEBUG ?=
 GOPATH ?= $(shell go env GOPATH)
 GO_TEST_FLAGS ?= -race
 GO_BUILD_FLAGS ?=
 MM_UTILITIES_DIR ?= ../mattermost-utilities
+DEFAULT_GOOS := $(shell go env GOOS)
+DEFAULT_GOARCH := $(shell go env GOARCH)
 
 export GO111MODULE=on
 
-# You can include assets this directory into the bundle. This can be e.g. used to include profile pictures.
+# We need to export GOBIN to allow it to be set for processes spawned from the Makefile.
+export GOBIN ?= $(PWD)/bin
+
+# You can include assets in this directory into the bundle. This can be e.g. used to include profile pictures.
 ASSETS_DIR ?= assets
+
+.PHONY: default
+default: all
 
 # Verify environment, and define PLUGIN_ID, PLUGIN_VERSION, HAS_SERVER and HAS_WEBAPP as needed.
 include build/setup.mk
@@ -22,108 +29,82 @@ ifneq ($(wildcard build/custom.mk),)
 	include build/custom.mk
 endif
 
+ifneq ($(MM_DEBUG),)
+	GO_BUILD_GCFLAGS = -gcflags "all=-N -l"
+else
+	GO_BUILD_GCFLAGS =
+endif
+
 ## Checks the code style, tests, builds and bundles the plugin.
+.PHONY: all
 all: check-style test dist
 
-## Propagates plugin manifest information into the server/ and webapp/ folders as required.
+## Ensures the plugin manifest is valid.
+.PHONY: manifest-check
+manifest-check:
+	./build/bin/manifest check
+
+## Propagates plugin manifest information into the server/ and webapp/ folders.
 .PHONY: apply
 apply:
 	./build/bin/manifest apply
 
-## Runs govet and gofmt against all packages.
+## Install go tools used for linting.
+.PHONY: install-go-tools
+install-go-tools:
+	@echo Installing go tools
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
+
+## Runs eslint, tsc, and golangci-lint.
 .PHONY: check-style
-check-style: webapp/.npminstall mp3-wasm gofmt govet golint
+check-style: manifest-check apply webapp/node_modules install-go-tools
 	@echo Checking for style guide compliance
 
 ifneq ($(HAS_WEBAPP),)
 	cd webapp && npm run lint
+	cd webapp && npm run check-types
 endif
 
-## Runs gofmt against all packages.
-.PHONY: gofmt
-gofmt:
 ifneq ($(HAS_SERVER),)
-	@echo Running gofmt
-	@for package in $$(go list ./...); do \
-		echo "Checking "$$package; \
-		files=$$(go list -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' $$package); \
-		if [ "$$files" ]; then \
-			gofmt_output=$$(gofmt -d -s $$files 2>&1); \
-			if [ "$$gofmt_output" ]; then \
-				echo "$$gofmt_output"; \
-				echo "Gofmt failure"; \
-				exit 1; \
-			fi; \
-		fi; \
-	done
-	@echo Gofmt success
+	@echo Running golangci-lint
+	$(GO) vet ./server/...
+	$(GOBIN)/golangci-lint run ./server/...
 endif
 
-## Runs govet against all packages.
-.PHONY: govet
-govet:
-ifneq ($(HAS_SERVER),)
-	@echo Running govet
-	@# Workaround because you can't install binaries without adding them to go.mod
-	env GO111MODULE=off $(GO) get golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow
-	$(GO) vet ./...
-	$(GO) vet -vettool=$(GOPATH)/bin/shadow ./...
-	@echo Govet success
-endif
-
-## Runs golint against all packages.
-.PHONY: golint
-golint:
-	@echo Running lint
-	env GO111MODULE=off $(GO) get golang.org/x/lint/golint
-	$(GOPATH)/bin/golint -set_exit_status ./...
-	@echo lint success
-
-## Builds the server, if it exists, including support for multiple architectures.
+## Builds the server, if it exists, for all supported architectures, unless MM_SERVICESETTINGS_ENABLEDEVELOPER is set.
 .PHONY: server
 server:
 ifneq ($(HAS_SERVER),)
-	mkdir -p server/dist;
-	cd server && env GOOS=linux GOARCH=amd64 $(GO) build $(GO_BUILD_FLAGS) -o dist/plugin-linux-amd64;
-	cd server && env GOOS=darwin GOARCH=amd64 $(GO) build $(GO_BUILD_FLAGS) -o dist/plugin-darwin-amd64;
-	cd server && env GOOS=windows GOARCH=amd64 $(GO) build $(GO_BUILD_FLAGS) -o dist/plugin-windows-amd64.exe;
+	rm -rf server/dist
+	mkdir -p server/dist
+ifneq ($(MM_SERVICESETTINGS_ENABLEDEVELOPER),)
+	@echo Building plugin only for $(DEFAULT_GOOS)-$(DEFAULT_GOARCH) because MM_SERVICESETTINGS_ENABLEDEVELOPER is enabled
+	cd server && env CGO_ENABLED=0 $(GO) build $(GO_BUILD_FLAGS) $(GO_BUILD_GCFLAGS) -trimpath -o dist/plugin-$(DEFAULT_GOOS)-$(DEFAULT_GOARCH)
+else
+	cd server && env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GO_BUILD_FLAGS) $(GO_BUILD_GCFLAGS) -trimpath -o dist/plugin-linux-amd64
+	cd server && env CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build $(GO_BUILD_FLAGS) $(GO_BUILD_GCFLAGS) -trimpath -o dist/plugin-linux-arm64
+	cd server && env CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GO) build $(GO_BUILD_FLAGS) $(GO_BUILD_GCFLAGS) -trimpath -o dist/plugin-darwin-amd64
+	cd server && env CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GO) build $(GO_BUILD_FLAGS) $(GO_BUILD_GCFLAGS) -trimpath -o dist/plugin-darwin-arm64
+	cd server && env CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(GO_BUILD_FLAGS) $(GO_BUILD_GCFLAGS) -trimpath -o dist/plugin-windows-amd64.exe
+endif
 endif
 
 ## Ensures NPM dependencies are installed without having to run this all the time.
-webapp/.npminstall:
+webapp/node_modules: $(wildcard webapp/package.json)
 ifneq ($(HAS_WEBAPP),)
 	cd webapp && $(NPM) install
 	touch $@
 endif
 
-## Installs mp3-wasm dependency
-MP3WASM_VERSION="0.1.6"
-MP3WASM_FULLNAME="mp3enc-wasm-${MP3WASM_VERSION}"
-
-.PHONY: mp3-wasm
-mp3-wasm:
-	mkdir -p dist && \
-	mkdir -p public && \
-	cd dist && \
-	curl -L -o "${MP3WASM_FULLNAME}.tar.gz" -C - "https://github.com/streamer45/mp3rec-wasm/releases/download/v${MP3WASM_VERSION}/${MP3WASM_FULLNAME}.tar.gz" 2> /dev/null && \
-	cd ../public && \
-	tar xf ../dist/${MP3WASM_FULLNAME}.tar.gz 2> /dev/null && \
-	mv ${MP3WASM_FULLNAME}/* . && \
-	mv recorder.js ../webapp/src/client/ && \
-	rm -rf ${MP3WASM_FULLNAME}
-
 ## Builds the webapp, if it exists.
 .PHONY: webapp
-webapp: mp3-wasm webapp/.npminstall
+webapp: webapp/node_modules
 ifneq ($(HAS_WEBAPP),)
-	cd webapp && $(NPM) run build;
+ifeq ($(MM_DEBUG),)
+	cd webapp && $(NPM) run build
+else
+	cd webapp && $(NPM) run debug
 endif
-
-## Builds the webapp in debug mode, if it exists.
-webapp-debug: mp3-wasm webapp/.npminstall
-ifneq ($(HAS_WEBAPP),)
-	cd webapp && \
-	$(NPM) run debug;
 endif
 
 ## Generates a tar bundle of the plugin for install.
@@ -131,91 +112,108 @@ endif
 bundle:
 	rm -rf dist/
 	mkdir -p dist/$(PLUGIN_ID)
-	cp $(MANIFEST_FILE) dist/$(PLUGIN_ID)/
+	./build/bin/manifest dist
 ifneq ($(wildcard $(ASSETS_DIR)/.),)
 	cp -r $(ASSETS_DIR) dist/$(PLUGIN_ID)/
 endif
-ifneq ($(HAS_PUBLIC),)
-	cp -r public dist/$(PLUGIN_ID)/
-endif
 ifneq ($(HAS_SERVER),)
-	mkdir -p dist/$(PLUGIN_ID)/server/dist;
-	cp -r server/dist/* dist/$(PLUGIN_ID)/server/dist/;
+	mkdir -p dist/$(PLUGIN_ID)/server
+	cp -r server/dist dist/$(PLUGIN_ID)/server/
 endif
 ifneq ($(HAS_WEBAPP),)
-	mkdir -p dist/$(PLUGIN_ID)/webapp/dist;
-	cp -r webapp/dist/* dist/$(PLUGIN_ID)/webapp/dist/;
+	mkdir -p dist/$(PLUGIN_ID)/webapp
+	cp -r webapp/dist dist/$(PLUGIN_ID)/webapp/
 endif
+ifeq ($(shell uname),Darwin)
+	cd dist && tar --disable-copyfile -cvzf $(BUNDLE_NAME) $(PLUGIN_ID)
+else
 	cd dist && tar -cvzf $(BUNDLE_NAME) $(PLUGIN_ID)
+endif
 
 	@echo plugin built at: dist/$(BUNDLE_NAME)
 
 ## Builds and bundles the plugin.
 .PHONY: dist
-dist:	apply server webapp bundle
+dist: apply server webapp bundle
 
-## Installs the plugin to a (development) server.
-## It uses the API if appropriate environment variables are defined,
-## and otherwise falls back to trying to copy the plugin to a sibling mattermost-server directory.
+## Builds and installs the plugin to a (development) server.
+## Uses the API if MM_SERVICESETTINGS_SITEURL + MM_ADMIN_TOKEN (or MM_ADMIN_USERNAME/MM_ADMIN_PASSWORD)
+## are set, or Mattermost's local mode socket otherwise.
 .PHONY: deploy
 deploy: dist
 	./build/bin/pluginctl deploy $(PLUGIN_ID) dist/$(BUNDLE_NAME)
 
-.PHONY: debug-deploy
-debug-deploy: debug-dist deploy
+## Builds and installs the plugin to a server, updating the webapp automatically when changed.
+.PHONY: watch
+watch: apply server bundle
+ifeq ($(MM_DEBUG),)
+	cd webapp && $(NPM) run build:watch
+else
+	cd webapp && $(NPM) run debug:watch
+endif
 
-.PHONY: debug-dist
-debug-dist: apply server webapp-debug bundle
+## Installs a previously built plugin with updated webpack assets to a server.
+.PHONY: deploy-from-watch
+deploy-from-watch: bundle
+	./build/bin/pluginctl deploy $(PLUGIN_ID) dist/$(BUNDLE_NAME)
 
 ## Runs any lints and unit tests defined for the server and webapp, if they exist.
 .PHONY: test
-test: mp3-wasm webapp/.npminstall
+test: apply webapp/node_modules
 ifneq ($(HAS_SERVER),)
 	$(GO) test -v $(GO_TEST_FLAGS) ./server/...
 endif
 ifneq ($(HAS_WEBAPP),)
-	cd webapp && $(NPM) run fix && $(NPM) run test;
+	cd webapp && $(NPM) run test
 endif
 
 ## Creates a coverage report for the server code.
 .PHONY: coverage
-coverage: webapp/.npminstall
+coverage: webapp/node_modules
 ifneq ($(HAS_SERVER),)
 	$(GO) test $(GO_TEST_FLAGS) -coverprofile=server/coverage.txt ./server/...
 	$(GO) tool cover -html=server/coverage.txt
 endif
 
-## Extract strings for translation from the source code.
-.PHONY: i18n-extract
-i18n-extract:
-ifneq ($(HAS_WEBAPP),)
-ifeq ($(HAS_MM_UTILITIES),)
-	@echo "You must clone github.com/mattermost/mattermost-utilities repo in .. to use this command"
-else
-	cd $(MM_UTILITIES_DIR) && npm install && npm run babel && node mmjstool/build/index.js i18n extract-webapp --webapp-dir $(PWD)/webapp
-endif
-endif
+## Disable the plugin on the target server.
+.PHONY: disable
+disable:
+	./build/bin/pluginctl disable $(PLUGIN_ID)
+
+## Enable the plugin on the target server.
+.PHONY: enable
+enable:
+	./build/bin/pluginctl enable $(PLUGIN_ID)
+
+## Reset the plugin, effectively disabling and re-enabling it on the server.
+.PHONY: reset
+reset:
+	./build/bin/pluginctl reset $(PLUGIN_ID)
+
+## Tail the target server's logs, filtered to this plugin.
+.PHONY: logs
+logs:
+	./build/bin/pluginctl logs $(PLUGIN_ID)
+
+.PHONY: logs-watch
+logs-watch:
+	./build/bin/pluginctl logs-watch $(PLUGIN_ID)
 
 ## Clean removes all build artifacts.
 .PHONY: clean
 clean:
 	rm -fr dist/
-	rm -fr public/encoder.js
-	rm -fr public/encoder.wasm
-	rm -rf public/recorder.worker.js
 ifneq ($(HAS_SERVER),)
 	rm -fr server/coverage.txt
 	rm -fr server/dist
 endif
 ifneq ($(HAS_WEBAPP),)
-	rm -fr webapp/.npminstall
+	rm -fr webapp/node_modules
 	rm -fr webapp/junit.xml
 	rm -fr webapp/dist
-	rm -fr webapp/node_modules
-	rm -rf webapp/src/client/recorder.js
 endif
 	rm -fr build/bin/
 
 # Help documentation à la https://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help:
-	@cat Makefile | grep -v '\.PHONY' |  grep -v '\help:' | grep -B1 -E '^[a-zA-Z0-9_.-]+:.*' | sed -e "s/:.*//" | sed -e "s/^## //" |  grep -v '\-\-' | sed '1!G;h;$$!d' | awk 'NR%2{printf "\033[36m%-30s\033[0m",$$0;next;}1' | sort
+	@cat Makefile build/*.mk | grep -v '\.PHONY' |  grep -v '\help:' | grep -B1 -E '^[a-zA-Z0-9_.-]+:.*' | sed -e "s/:.*//" | sed -e "s/^## //" |  grep -v '\-\-' | sed '1!G;h;$$!d' | awk 'NR%2{printf "\033[36m%-30s\033[0m",$$0;next;}1' | sort

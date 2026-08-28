@@ -1,0 +1,211 @@
+// Voice message compose button and its recording / review / uploading / error states.
+.VoiceRecorderAction__button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(var(--center-channel-color-rgb), 0.64);
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        background: rgba(var(--center-channel-color-rgb), 0.08);
+        color: rgba(var(--center-channel-color-rgb), 0.8);
+    }
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.4;
+    }
+
+    &--pending {
+        color: var(--away-indicator);
+    }
+}
+
+.VoiceRecorderAction {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(var(--center-channel-color-rgb), 0.04);
+
+    &--recording {
+        color: var(--dnd-indicator);
+    }
+}
+
+.VoiceRecorderAction__level {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--dnd-indicator);
+    transition: transform 80ms linear;
+}
+
+.VoiceRecorderAction__timer {
+    min-width: 34px;
+    font-variant-numeric: tabular-nums;
+    color: var(--center-channel-color);
+
+    &--warning {
+        color: var(--dnd-indicator);
+        font-weight: 600;
+    }
+}
+
+.VoiceRecorderAction__iconButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(var(--center-channel-color-rgb), 0.64);
+    cursor: pointer;
+
+    &:hover {
+        background: rgba(var(--center-channel-color-rgb), 0.08);
+    }
+
+    &--cancel:hover {
+        color: var(--dnd-indicator);
+    }
+
+    &--send {
+        color: var(--button-bg);
+
+        &:hover {
+            background: rgba(var(--button-bg-rgb), 0.12);
+        }
+    }
+}
+
+.VoiceRecorderAction--review {
+    min-width: 260px;
+}
+
+.VoiceRecorderAction--uploading {
+    color: rgba(var(--center-channel-color-rgb), 0.64);
+}
+
+.VoiceRecorderAction--error {
+    background: rgba(var(--error-text-color-rgb), 0.08);
+}
+
+.VoiceRecorderAction__errorText {
+    color: var(--error-text);
+    font-size: 12px;
+}
+
+.VoiceRecorderAction__spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(var(--center-channel-color-rgb), 0.2);
+    border-top-color: var(--button-bg);
+    border-radius: 50%;
+    animation: voice-spin 0.7s linear infinite;
+}
+
+@keyframes voice-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+// Shared audio player, used both for the pre-send review clip and posted voice messages.
+.VoiceAudioPlayer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 220px;
+    max-width: 360px;
+    padding: 6px 10px;
+    border: 1px solid rgba(var(--center-channel-color-rgb), 0.16);
+    border-radius: 16px;
+    background: var(--center-channel-bg);
+
+    &--error {
+        padding: 8px 12px;
+        color: rgba(var(--center-channel-color-rgb), 0.64);
+        font-size: 13px;
+        font-style: italic;
+    }
+}
+
+.VoiceAudioPlayer__playButton {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 50%;
+    background: var(--button-bg);
+    color: var(--button-color);
+    cursor: pointer;
+}
+
+.VoiceAudioPlayer__seek {
+    flex: 1 1 auto;
+    height: 4px;
+    accent-color: var(--button-bg);
+}
+
+.VoiceAudioPlayer__time {
+    flex: 0 0 auto;
+    min-width: 32px;
+    color: rgba(var(--center-channel-color-rgb), 0.64);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.VoiceAudioPlayer__download {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    color: rgba(var(--center-channel-color-rgb), 0.56);
+
+    &:hover {
+        color: rgba(var(--center-channel-color-rgb), 0.8);
+    }
+}
+
+// The player + optional transcript rendered under a posted voice message.
+.VoiceMessageAttachment {
+    margin-top: 4px;
+}
+
+.VoiceMessageAttachment__transcript {
+    max-width: 420px;
+    margin-top: 6px;
+    padding: 8px 12px;
+    border-left: 3px solid rgba(var(--center-channel-color-rgb), 0.16);
+    color: rgba(var(--center-channel-color-rgb), 0.8);
+    font-size: 13px;
+
+    p {
+        margin: 2px 0 0;
+        white-space: pre-wrap;
+    }
+}
+
+.VoiceMessageAttachment__transcriptLabel {
+    color: rgba(var(--center-channel-color-rgb), 0.56);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}

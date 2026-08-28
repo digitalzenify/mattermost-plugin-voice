@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"net/url"
 	"os"
 	"strings"
 
-	"github.com/mattermost/mattermost-server/v6/model"
+	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/pkg/errors"
 )
 
@@ -17,22 +17,19 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 
-	"github.com/mattermost/mattermost-server/v6/model"
+	"github.com/mattermost/mattermost/server/public/model"
 )
 
-var manifest model.Manifest
-var wsActionPrefix string
+var manifest *model.Manifest
 
 const manifestStr = ` + "`" + `
 %s
 ` + "`" + `
 
 func init() {
-	if err := json.Unmarshal([]byte(manifestStr), &manifest); err != nil {
-		panic(err.Error())
-	}
-	wsActionPrefix = "custom_" + manifest.Id + "_"
+	_ = json.NewDecoder(strings.NewReader(manifestStr)).Decode(&manifest)
 }
 `
 
@@ -45,7 +42,6 @@ const manifest = JSON.parse(` + "`" + `
 export default manifest;
 export const id = manifest.id;
 export const version = manifest.version;
-export const pluginId = manifest.id;
 `
 
 // These build-time vars are read from shell commands and populated in ../setup.mk
@@ -93,6 +89,11 @@ func main() {
 			panic("failed to write manifest to dist directory: " + err.Error())
 		}
 
+	case "check":
+		if err := manifest.IsValid(); err != nil {
+			panic("failed to check manifest: " + err.Error())
+		}
+
 	default:
 		panic("unrecognized command: " + cmd)
 	}
@@ -103,11 +104,11 @@ func findManifest() (*model.Manifest, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to find manifest in current working directory")
 	}
-	manifestFile, err := os.Open(manifestFilePath)
+	manifestFile, err := os.Open(manifestFilePath) //nolint:gosec
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open %s", manifestFilePath)
 	}
-	defer manifestFile.Close()
+	defer func() { _ = manifestFile.Close() }()
 
 	// Re-decode the manifest, disallowing unknown fields. When we write the manifest back out,
 	// we don't want to accidentally clobber anything we won't preserve.
@@ -118,26 +119,35 @@ func findManifest() (*model.Manifest, error) {
 		return nil, errors.Wrap(err, "failed to parse manifest")
 	}
 
-	// Update the manifest based on the state of the current commit
-	// Use the first version we find (to prevent causing errors)
-	var version string
-	tags := strings.Fields(BuildTagCurrent)
-	for _, t := range tags {
-		if strings.HasPrefix(t, "v") {
-			version = t
-			break
+	// If no version is listed in the manifest, generate one based on the state of the current
+	// commit, and use the first version we find (to prevent causing errors)
+	if manifest.Version == "" {
+		var version string
+		tags := strings.Fields(BuildTagCurrent)
+		for _, t := range tags {
+			if strings.HasPrefix(t, "v") {
+				version = t
+				break
+			}
 		}
+		if version == "" {
+			if BuildTagLatest != "" {
+				version = BuildTagLatest + "+" + BuildHashShort
+			} else {
+				version = "v0.0.0+" + BuildHashShort
+			}
+		}
+		manifest.Version = strings.TrimPrefix(version, "v")
 	}
-	if version == "" {
-		version = BuildTagLatest + "+" + BuildHashShort
-	}
-	if strings.HasPrefix(version, "v") {
-		version = version[1:]
-	}
-	manifest.Version = version
 
-	// Update the release notes url to point at the latest tag.
-	manifest.ReleaseNotesURL = manifest.HomepageURL + "releases/tag/" + BuildTagLatest
+	// If no release notes specified, generate one from the latest tag, if present.
+	if manifest.ReleaseNotesURL == "" && BuildTagLatest != "" {
+		releaseNotesURL, err := url.JoinPath(manifest.HomepageURL, "releases", "tag", BuildTagLatest)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to build release notes URL")
+		}
+		manifest.ReleaseNotesURL = releaseNotesURL
+	}
 
 	return &manifest, nil
 }
@@ -163,10 +173,10 @@ func applyManifest(manifest *model.Manifest) error {
 		manifestStr := string(manifestBytes)
 
 		// write generated code to file by using Go file template.
-		if err := ioutil.WriteFile(
+		if err := os.WriteFile(
 			"server/manifest.go",
-			[]byte(fmt.Sprintf(pluginIDGoFileTemplate, manifestStr)),
-			0600,
+			fmt.Appendf(nil, pluginIDGoFileTemplate, manifestStr),
+			0o600,
 		); err != nil {
 			return errors.Wrap(err, "failed to write server/manifest.go")
 		}
@@ -182,11 +192,14 @@ func applyManifest(manifest *model.Manifest) error {
 		}
 		manifestStr := string(manifestBytes)
 
+		// Escape newlines
+		manifestStr = strings.ReplaceAll(manifestStr, `\n`, `\\n`)
+
 		// write generated code to file by using JS file template.
-		if err := ioutil.WriteFile(
+		if err := os.WriteFile(
 			"webapp/src/manifest.ts",
-			[]byte(fmt.Sprintf(pluginIDJSFileTemplate, manifestStr)),
-			0600,
+			fmt.Appendf(nil, pluginIDJSFileTemplate, manifestStr),
+			0o600,
 		); err != nil {
 			return errors.Wrap(err, "failed to open webapp/src/manifest.ts")
 		}
@@ -202,7 +215,7 @@ func distManifest(manifest *model.Manifest) error {
 		return err
 	}
 
-	if err := ioutil.WriteFile(fmt.Sprintf("dist/%s/plugin.json", manifest.Id), manifestBytes, 0600); err != nil {
+	if err := os.WriteFile(fmt.Sprintf("dist/%s/plugin.json", manifest.Id), manifestBytes, 0o600); err != nil {
 		return errors.Wrap(err, "failed to write plugin.json")
 	}
 
